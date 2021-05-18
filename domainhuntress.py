@@ -3,10 +3,10 @@
 from datetime import tzinfo, timedelta, datetime
 import os
 import sys
+import falcon_jsonify
 
 
 import falcon
-import falcon_jsonify
 from wsgiref import simple_server
 
 
@@ -20,14 +20,17 @@ if __name__ == "__main__":
     args = dh_args.DHParseArgs(__file__)
 
     # Bootstrap Falcon
-    app = application = falcon.App(middleware=[falcon_jsonify.Middleware(help_messages=True),])
+    # app = application = falcon.App(middleware=[falcon_jsonify.Middleware(help_messages=True),])
+    app = application = falcon.App()
 
     # Start
-    app = application = falcon.App()
+#    app = application = falcon.App()
 
     # Routing
     app.add_route('/domainhuntress', dh_dns.QuoteResource())
     print("Loaded route: '/domainhuntress'")
+    app.add_route('/domainhuntress/dns', dh_dns.DNSResolver())
+    print("Loaded route: '/domainhuntress/dns'")
 
     # Serving
     try:

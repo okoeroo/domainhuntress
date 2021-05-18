@@ -1,0 +1,7 @@
+uvicorn
+falcon
+falcon_json
+falcon-jsonify
+dnspython
+
+gunicorn

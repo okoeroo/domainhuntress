@@ -35,17 +35,9 @@ class DNSHuntress:
             resp.status = falcon.HTTP_415
             return
 
-        print(req.content_type)
-
         deserialized_media = await req.get_media()
-        print(deserialized_media)
 
-        print(deserialized_media['fqdn'])
-        print(deserialized_media['type'])
-
-        print("goto self._dns_query")
         answer = await self._dns_query(deserialized_media['fqdn'], deserialized_media['type'])
-        print(answer)
 
         resp.text = str(answer)
         resp.status = falcon.HTTP_201
@@ -58,7 +50,6 @@ class DNSHuntress:
         q_dt = datetime.utcnow()
 
         try:
-            print("resolve")
             resolver = dns.resolver.Resolver()
             resolver.nameservers = self.resolvers
             resolver.timeout = 8

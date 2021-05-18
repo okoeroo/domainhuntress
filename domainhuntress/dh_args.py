@@ -23,5 +23,10 @@ def DHParseArgs(reference_main):
                         default=CUR_PATH,
                         help=f"Change directory for execution. Default is the current directory, which is {CUR_PATH}",
                         type=str)
+    parser.add_argument("--resolver",
+                        default="127.0.0.1",
+                        help="Set resolver IP address. Default: 127.0.0.1",
+                        type=str)
+
     args = parser.parse_args()
     return args
