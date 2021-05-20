@@ -19,3 +19,17 @@ content-type: application/json
 {
     "ipaddress": "8.8.8.8"
 }
+
+
+###
+
+POST http://localhost:8000/huntress/dns/query HTTP/1.1
+content-type: application/json
+
+{
+    "fqdn": "koeroo.net", 
+    "type": "TXT"
+}
+
+
+###
