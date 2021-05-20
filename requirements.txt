@@ -3,5 +3,5 @@ falcon
 falcon_json
 falcon-jsonify
 dnspython
-
+ipwhois
 gunicorn

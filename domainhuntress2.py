@@ -1,5 +1,7 @@
 from datetime import tzinfo, timedelta, datetime
 
+import sys
+import json
 import falcon
 import falcon.asgi
 
@@ -7,6 +9,47 @@ import dns.resolver
 import dns.message
 import dns.asyncquery
 import dns.asyncresolver
+
+from ipwhois.net import Net
+from ipwhois.asn import IPASN
+
+
+class WhoisHuntress:
+    async def on_post(self, req, resp):
+        if req.content_length in (None, 0):
+            # Nothing to do
+            return
+
+        if 'application/json' != req.content_type:
+            resp.status = falcon.HTTP_415
+            return
+
+        deserialized_media = await req.get_media()
+        print(deserialized_media)
+
+        
+        try:
+            q_dt = datetime.utcnow()
+            answer = await self._dns_whois(deserialized_media['ipaddress'])
+            a_dt = datetime.utcnow()
+
+            print(answer)
+
+            answer['q_dt'] = str(q_dt)
+            answer['a_dt'] = str(a_dt)
+
+
+            resp.text = json.dumps(answer)
+            resp.status = falcon.HTTP_201
+        except Exception as e:
+            print(e)
+
+    async def _dns_whois(self, ipaddress):
+        net = Net(ipaddress)
+        obj = IPASN(net)
+        results = obj.lookup()
+
+        return results
 
 
 # Falcon follows the REST architectural style, meaning (among
@@ -16,15 +59,6 @@ class DNSHuntress:
     def __init__(self, resolvers=["127.0.0.1"]):
         # a list
         self.resolvers = resolvers
-
-    async def on_get(self, req, resp):
-        """Handles GET requests"""
-        resp.status = falcon.HTTP_200  # This is the default status
-        resp.content_type = falcon.MEDIA_TEXT  # Default is JSON, so override
-        resp.text = ('\nTwo things awe me most, the starry sky '
-                     'above me and the moral law within me.\n'
-                     '\n'
-                     '    ~ Immanuel Kant\n\n')
 
     async def on_post(self, req, resp):
         if req.content_length in (None, 0):
@@ -37,16 +71,20 @@ class DNSHuntress:
 
         deserialized_media = await req.get_media()
 
-        answer = await self._dns_query(deserialized_media['fqdn'], deserialized_media['type'])
+        try:
+            answer = await self._dns_query(deserialized_media['fqdn'], deserialized_media['type'])
 
-        resp.text = str(answer)
-        resp.status = falcon.HTTP_201
+            resp.text = json.dumps(answer)
+            resp.status = falcon.HTTP_201
+
+        except Exception as e:
+            print(e)
 
     async def _dns_query(self, fqdn, r_type):
         print("dns_query", fqdn, r_type)
 
         ### DNS Resolve FQDN with resource type
-        answers = None
+        answer = None
         q_dt = datetime.utcnow()
 
         try:
@@ -56,6 +94,8 @@ class DNSHuntress:
             resolver.lifetime = 8
             answer = resolver.resolve(fqdn, r_type)
             a_dt = datetime.utcnow()
+
+            print(answer)
             #for i in answer:
             #    print(i)
 
@@ -68,7 +108,7 @@ class DNSHuntress:
             d['qname'] = answer.qname.to_text()
             d['rdataclass'] = dns.rdataclass.to_text(answer.rdclass)
             d['rdatatype'] = dns.rdatatype.to_text(answer.rdtype)
-            d['ttl'] = dns.ttl.make(answer.ttl)
+            d['ttl'] = str(answer.ttl)
 
             d['rdataset'] = []
             for rr in answer:
@@ -97,8 +137,10 @@ class DNSHuntress:
 
 ### MAIN ###
 app = falcon.asgi.App()
+whois_huntress = WhoisHuntress()
 dns_huntress = DNSHuntress(["192.168.1.2"])
 
+app.add_route('/huntress/whois/query', whois_huntress)
 app.add_route('/huntress/dns/query', dns_huntress)
 app.add_route('/huntress/dns2/{user_id}', dns_huntress)
 

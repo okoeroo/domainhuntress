@@ -1,0 +1,21 @@
+GET http://localhost:8000/huntress HTTP/1.1
+
+###
+
+POST http://localhost:8000/huntress/dns/query HTTP/1.1
+content-type: application/json
+
+{
+    "fqdn": "nu.nl", 
+    "type": "A"
+}
+
+
+###
+
+POST http://localhost:8000/huntress/whois/query HTTP/1.1
+content-type: application/json
+
+{
+    "ipaddress": "8.8.8.8"
+}
