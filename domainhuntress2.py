@@ -69,9 +69,9 @@ class DNSHuntress:
             resp.status = falcon.HTTP_415
             return
 
-        deserialized_media = await req.get_media()
-
         try:
+            deserialized_media = await req.get_media()
+
             answer = await self._dns_query(deserialized_media['fqdn'], deserialized_media['type'])
 
             resp.text = json.dumps(answer)
@@ -80,8 +80,8 @@ class DNSHuntress:
         except Exception as e:
             print(e)
 
-    async def _dns_query(self, fqdn, r_type):
-        print("dns_query", fqdn, r_type)
+    async def _dns_query(self, qname, r_type):
+        print("dns_query", qname, r_type)
 
         ### DNS Resolve FQDN with resource type
         answer = None
@@ -92,7 +92,7 @@ class DNSHuntress:
             resolver.nameservers = self.resolvers
             resolver.timeout = 8
             resolver.lifetime = 8
-            answer = resolver.resolve(fqdn, r_type)
+            answer = resolver.resolve(qname, r_type)
             a_dt = datetime.utcnow()
 
             print(answer)
@@ -114,25 +114,43 @@ class DNSHuntress:
             for rr in answer:
                 e = {}
                 e['rdata'] = rr.to_text()
+                expansion = self._dns_query_expansion(qname, r_type, e['rdata'], rr) 
+                if expansion is not None:
+                    e['rdata_e'] = expansion
+                
                 d['rdataset'].append(e)
 
+            print(d)
             return d
 
         except dns.resolver.NXDOMAIN:
-            print("Resolver warning: NXDOMAIN.", 'FQDN', fqdn, 'r_type', r_type, file=sys.stderr)
+            print("Resolver warning: NXDOMAIN.", 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
             pass
         except dns.resolver.NoAnswer:
-            print("Resolver warning: SERVFAIL.", 'FQDN', fqdn, 'r_type', r_type, file=sys.stderr)
+            print("Resolver warning: SERVFAIL.", 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
             pass
         except dns.exception.Timeout:
-            print("Resolver error: Time out reached.", 'FQDN', fqdn, 'r_type', r_type, file=sys.stderr)
+            print("Resolver error: Time out reached.", 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
         except EOFError:
-            print("Resolver error: EOF Error.", 'FQDN', fqdn, 'r_type', r_type, file=sys.stderr)
+            print("Resolver error: EOF Error.", 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
 
         except Exception as e:
-            print("Resolver error:", e, 'FQDN', fqdn, 'r_type', r_type, file=sys.stderr)
+            print("Resolver error:", e, 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
 
         return None
+
+    def _dns_query_expansion(self, qname, r_type, rdata, rr):
+        if r_type == 'MX':
+            print(rr.preference)
+            print(rr.exchange)
+            r = {}
+            r['preference'] = str(rr.preference)
+            r['exchange'] = rr.exchange.to_text()
+            return r
+        
+        return None
+
+
 
 
 ### MAIN ###

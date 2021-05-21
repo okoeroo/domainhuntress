@@ -33,3 +33,11 @@ content-type: application/json
 
 
 ###
+
+POST http://localhost:8000/huntress/dns/query HTTP/1.1
+content-type: application/json
+
+{
+    "fqdn": "koeroo.net", 
+    "type": "MX"
+}
