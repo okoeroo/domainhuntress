@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
+
 from datetime import tzinfo, timedelta, datetime
 import argparse
 
 import os
 import sys
 import json
+import binascii
 import falcon
 import falcon.asgi
 import uvicorn
@@ -19,7 +22,6 @@ from ipwhois.asn import IPASN
 
 def check_correctness(args):
 #        parser.print_help()
-
     return True
 
 
@@ -28,6 +30,11 @@ def argparsing(exec_file):
     parser.add_argument("--lhost",
                         dest='lhost',
                         help="The listening host, default: 127.0.0.1.",
+                        default="127.0.0.1",
+                        type=str)
+    parser.add_argument("--resolver",
+                        dest='resolver',
+                        help="The default resolver is 127.0.0.1",
                         default="127.0.0.1",
                         type=str)
     parser.add_argument("--lport",
@@ -68,7 +75,7 @@ class WhoisHuntress:
         deserialized_media = await req.get_media()
         print(deserialized_media)
 
-        
+
         try:
             q_dt = datetime.utcnow()
             answer = await self._dns_whois(deserialized_media['ipaddress'])
@@ -121,6 +128,8 @@ class DNSHuntress:
             print(e)
 
     async def _dns_query(self, qname, r_type):
+        d = None
+
         print("dns_query", qname, r_type)
 
         ### DNS Resolve FQDN with resource type
@@ -153,11 +162,11 @@ class DNSHuntress:
             d['rdataset'] = []
             for rr in answer:
                 e = {}
-                e['rdata'] = rr.to_text()
-                expansion = await self._dns_query_expansion(qname, r_type, e['rdata'], rr) 
+                e['rdata'] = dequote(rr.to_text())
+                expansion = await self._dns_query_expansion(qname, r_type, e['rdata'], rr)
                 if expansion is not None:
                     e['rdata_e'] = expansion
-                
+
                 d['rdataset'].append(e)
 
             print(d)
@@ -174,7 +183,24 @@ class DNSHuntress:
 
             pass
         except dns.resolver.NoAnswer:
+            print("Resolver warning: NoAnswer.", 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
+            a_dt = datetime.utcnow()
+
+            d = {}
+            d['q_dt'] = str(q_dt)
+            d['a_dt'] = str(a_dt)
+            d['error'] = 'NoAnswer'
+
+            pass
+        except dns.resolver.SERVFAIL:
             print("Resolver warning: SERVFAIL.", 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
+            a_dt = datetime.utcnow()
+
+            d = {}
+            d['q_dt'] = str(q_dt)
+            d['a_dt'] = str(a_dt)
+            d['error'] = 'SERVFAIL'
+
             pass
         except dns.exception.Timeout:
             print("Resolver error: Time out reached.", 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
@@ -184,12 +210,35 @@ class DNSHuntress:
         except Exception as e:
             print("Resolver error:", e, 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
 
-        return None
+        return d
+
 
     async def _dns_query_expansion(self, qname, rtype, rdata, rr):
-        if rtype == 'MX':
-            print(rr.preference)
-            print(rr.exchange)
+        if rtype == 'CNAME':
+            r = {}
+            r['cname'] = await self._dns_query(rdata, 'CNAME')
+            return r
+
+        elif rtype == 'SOA':
+            r = {}
+            r['mname'] = rr.mname.to_text()
+            r['rname'] = rr.rname.to_text()
+            r['serial'] = str(rr.serial)
+            r['refresh'] = str(rr.refresh)
+            r['retry'] = str(rr.retry)
+            r['expire'] = str(rr.expire)
+            r['minimum'] = str(rr.minimum)
+            return r
+
+        elif rtype == 'TLSA':
+            r = {}
+            r['usage'] = str(rr.usage)
+            r['selector'] = str(rr.selector)
+            r['mtype'] = str(rr.mtype)
+            r['cert'] = rr.cert.hex()
+            return r
+
+        elif rtype == 'MX':
             r = {}
             r['preference'] = str(rr.preference)
             r['exchange'] = rr.exchange.to_text()
@@ -247,7 +296,7 @@ class DNSHuntress:
                 return r
 
             # DMARC
-            if rdata_deq.lower().startswith('v=dmarc1'):
+            elif rdata_deq.lower().startswith('v=dmarc1'):
                 r = {}
                 for i in rdata_deq.split(';'):
                     t = i.strip()
@@ -257,6 +306,18 @@ class DNSHuntress:
                     r[t.split("=")[0]] = t.split("=")[1]
                 return r
 
+            # TLSRPTv1
+            elif rdata_deq.lower().startswith('v=TLSRPTv1'.lower()):
+                r = {}
+                for i in rdata_deq.split(';'):
+                    t = i.strip()
+                    if t == '':
+                        continue
+
+                    r[t.split("=")[0]] = t.split("=")[1]
+                return r
+
+
         elif rtype == 'CAA':
             rdata_deq = dequote(rdata)
             r = []
@@ -264,13 +325,7 @@ class DNSHuntress:
                 r.append(i)
             return r
 
-#        self.flags : int
-#        self.protocol : int
-#        self.key : str
-#        self.algorithm : int
-
         return None
-
 
 
 
@@ -291,4 +346,4 @@ if __name__ == "__main__":
     if args is None:
         raise Exception("error in arguments")
 
-    uvicorn.run(app_name, host="127.0.0.1", port=8000, log_level="info")
+    uvicorn.run(app_name, host="127.0.0.1", port=8000, log_level="info", workers=4)
