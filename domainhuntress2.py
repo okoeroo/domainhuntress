@@ -1,9 +1,12 @@
 from datetime import tzinfo, timedelta, datetime
+import argparse
 
+import os
 import sys
 import json
 import falcon
 import falcon.asgi
+import uvicorn
 
 import dns.resolver
 import dns.message
@@ -13,6 +16,44 @@ import dns.asyncresolver
 from ipwhois.net import Net
 from ipwhois.asn import IPASN
 
+
+def check_correctness(args):
+#        parser.print_help()
+
+    return True
+
+
+def argparsing(exec_file):
+    parser = argparse.ArgumentParser(exec_file)
+    parser.add_argument("--lhost",
+                        dest='lhost',
+                        help="The listening host, default: 127.0.0.1.",
+                        default="127.0.0.1",
+                        type=str)
+    parser.add_argument("--lport",
+                        dest='lport',
+                        help="Listening port",
+                        default='lport',
+                        type=str)
+    parser.add_argument("--log-level",
+                        choices=['info'],
+                        dest='log_level',
+                        help="Log levels",
+                        default='info',
+                        type=str)
+
+    args = parser.parse_args()
+    if not check_correctness(args):
+        return None
+
+    return args
+
+def dequote(s):
+    if s.startswith("'") or s.startswith("\""):
+        s = s[1:]
+    if s.endswith("'") or s.endswith("\""):
+        s = s[:-1]
+    return s
 
 class WhoisHuntress:
     async def on_post(self, req, resp):
@@ -71,7 +112,6 @@ class DNSHuntress:
 
         try:
             deserialized_media = await req.get_media()
-
             answer = await self._dns_query(deserialized_media['fqdn'], deserialized_media['type'])
 
             resp.text = json.dumps(answer)
@@ -114,7 +154,7 @@ class DNSHuntress:
             for rr in answer:
                 e = {}
                 e['rdata'] = rr.to_text()
-                expansion = self._dns_query_expansion(qname, r_type, e['rdata'], rr) 
+                expansion = await self._dns_query_expansion(qname, r_type, e['rdata'], rr) 
                 if expansion is not None:
                     e['rdata_e'] = expansion
                 
@@ -139,15 +179,77 @@ class DNSHuntress:
 
         return None
 
-    def _dns_query_expansion(self, qname, r_type, rdata, rr):
-        if r_type == 'MX':
+    async def _dns_query_expansion(self, qname, rtype, rdata, rr):
+        if rtype == 'MX':
             print(rr.preference)
             print(rr.exchange)
             r = {}
             r['preference'] = str(rr.preference)
             r['exchange'] = rr.exchange.to_text()
             return r
-        
+
+        elif rtype == 'TXT':
+            rdata_deq = dequote(rdata)
+
+            # SPF
+            if rdata_deq.lower().startswith('v=spf1'):
+                r = []
+                for i in rdata_deq.split():
+                    # Expand MX
+                    if i.lower() == 'mx':
+                        mx_e = {}
+                        mx_e['mx'] = await self._dns_query(qname, 'MX')
+
+                        r.append(mx_e)
+                    # Expand A
+                    elif i.lower() == 'a':
+                        a_e = {}
+                        a_e['a'] = await self._dns_query(qname, 'A')
+
+                        r.append(a_e)
+                    # Expand AAAA
+                    elif i.lower() == 'aaaa':
+                        aaaa_e = {}
+                        aaaa_e['aaaa'] = await self._dns_query(qname, 'AAAA')
+
+                        r.append(aaaa_e)
+                    elif i.lower().startswith('include'):
+                        include_e = {}
+                        include_target = i.split(":")[1]
+                        if len(include_target) == 0:
+                            # Formatting problem found of include element. Just adding it raw
+                            r.append(i)
+                        else:
+                            # Key is: current record, as is
+                            include_e[i.lower()] = await self._dns_query(include_target, 'TXT')
+                            r.append(include_e)
+                    else:
+                        r.append(i)
+                return r
+
+            # DMARC
+            if rdata_deq.lower().startswith('v=dmarc1'):
+                r = {}
+                for i in rdata_deq.split(';'):
+                    t = i.strip()
+                    if t == '':
+                        continue
+
+                    r[t.split("=")[0]] = t.split("=")[1]
+                return r
+
+        elif rtype == 'CAA':
+            rdata_deq = dequote(rdata)
+            r = []
+            for i in rdata_deq.split():
+                r.append(i)
+            return r
+
+#        self.flags : int
+#        self.protocol : int
+#        self.key : str
+#        self.algorithm : int
+
         return None
 
 
@@ -162,3 +264,12 @@ app.add_route('/huntress/whois/query', whois_huntress)
 app.add_route('/huntress/dns/query', dns_huntress)
 app.add_route('/huntress/dns2/{user_id}', dns_huntress)
 
+if __name__ == "__main__":
+    # Init
+    args = argparsing(os.path.basename(__file__))
+    app_name = os.path.basename(__file__).split(".")[0] + ":app"
+
+    if args is None:
+        raise Exception("error in arguments")
+
+    uvicorn.run(app_name, host="127.0.0.1", port=8000, log_level="info")
