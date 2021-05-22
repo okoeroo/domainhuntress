@@ -5,13 +5,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: FastAPI",
+            "name": "Python: Current File",
             "type": "python",
             "request": "launch",
-            "module": "uvicorn",
-            "args": [
-                "domainhuntress2:app"
-            ],
-            "jinja": true
+            "program": "${file}",
+            "console": "integratedTerminal"
         }
     ]
+}
