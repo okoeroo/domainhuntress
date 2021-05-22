@@ -165,6 +165,13 @@ class DNSHuntress:
 
         except dns.resolver.NXDOMAIN:
             print("Resolver warning: NXDOMAIN.", 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
+            a_dt = datetime.utcnow()
+
+            d = {}
+            d['q_dt'] = str(q_dt)
+            d['a_dt'] = str(a_dt)
+            d['error'] = 'NXDOMAIN'
+
             pass
         except dns.resolver.NoAnswer:
             print("Resolver warning: SERVFAIL.", 'FQDN', qname, 'r_type', r_type, file=sys.stderr)
@@ -213,6 +220,7 @@ class DNSHuntress:
                         aaaa_e['aaaa'] = await self._dns_query(qname, 'AAAA')
 
                         r.append(aaaa_e)
+                    # Expand include
                     elif i.lower().startswith('include'):
                         include_e = {}
                         include_target = i.split(":")[1]
@@ -223,6 +231,17 @@ class DNSHuntress:
                             # Key is: current record, as is
                             include_e[i.lower()] = await self._dns_query(include_target, 'TXT')
                             r.append(include_e)
+                    # Expand redirect
+                    elif i.lower().startswith('redirect'):
+                        redirect_e = {}
+                        redirect_target = i.split("=")[1]
+                        if len(redirect_target) == 0:
+                            # Formatting problem found of redirect element. Just adding it raw
+                            r.append(i)
+                        else:
+                            # Key is: current record, as is
+                            redirect_e[i.lower()] = await self._dns_query(redirect_target, 'TXT')
+                            r.append(redirect_e)
                     else:
                         r.append(i)
                 return r
